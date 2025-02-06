@@ -7,25 +7,33 @@ import os
 import shutil
 
 os.makedirs("/content/Image_Captioning/", exist_ok=True)
-#%cd /content/Image_Captioning/
+%cd /content/Image_Captioning/
+# if os.path.exists('dataset'):
+#     shutil.rmtree('dataset', ignore_errors=True)
 os.makedirs("dataset", exist_ok=True)
 os.makedirs("checkpoints", exist_ok=True)
 
-#!wget https://github.com/jbrownlee/Datasets/releases/download/Flickr8k/Flickr8k_Dataset.zip -P dataset/
+# shutil.rmtree('dataset/__MACOSX', ignore_errors=True)
+# if os.path.exists('dataset/Flickr8k_Dataset.zip'):
+#     os.remove('dataset/Flickr8k_Dataset.zip')
+# if os.path.exists('dataset/Flickr8k_text.zip'):
+#     os.remove('dataset/Flickr8k_text.zip')
 
-#!unzip dataset/Flickr8k_Dataset.zip -d dataset/
+# !wget -q https://github.com/jbrownlee/Datasets/releases/download/Flickr8k/Flickr8k_Dataset.zip -P dataset/
+
+# !unzip -q dataset/Flickr8k_Dataset.zip -d dataset/
 
 
 
-#!wget https://github.com/jbrownlee/Datasets/releases/download/Flickr8k/Flickr8k_text.zip -P dataset/
+# !wget -q https://github.com/jbrownlee/Datasets/releases/download/Flickr8k/Flickr8k_text.zip -P dataset/
 
-#!unzip dataset/Flickr8k_text.zip -d dataset/
+# !unzip -q dataset/Flickr8k_text.zip -d dataset/
 
-shutil.rmtree('dataset/__MACOSX', ignore_errors=True)
-if os.path.exists('dataset/Flickr8k_Dataset.zip'):
-    os.remove('dataset/Flickr8k_Dataset.zip')
-if os.path.exists('dataset/Flickr8k_text.zip'):
-    os.remove('dataset/Flickr8k_text.zip')
+# shutil.rmtree('dataset/__MACOSX', ignore_errors=True)
+# if os.path.exists('dataset/Flickr8k_Dataset.zip'):
+#     os.remove('dataset/Flickr8k_Dataset.zip')
+# if os.path.exists('dataset/Flickr8k_text.zip'):
+#     os.remove('dataset/Flickr8k_text.zip')
 
 image_data_location = os.path.join("dataset/Flicker8k_Dataset")
 # Get a list of files in the directory
@@ -90,9 +98,12 @@ text = "This is a good place to find a city"
 [token.text.lower() for token in spacy_eng.tokenizer(text)]
 
 class Vocabulary:
-    def __init__(self,freq_threshold):
-        self.itos = {0:"<PAD>",1:"<SOS>",2:"<EOS>",3:"<UNK>"}
-        self.stoi = {v:k for k,v in self.itos.items()}
+    def __init__(self, freq_threshold):
+        # Initialize the index-to-string (itos) dictionary with special tokens
+        self.itos = {0: "<PAD>", 1: "<SOS>", 2: "<EOS>", 3: "<UNK>"}
+        # Create the string-to-index (stoi) dictionary by reversing the itos dictionary
+        self.stoi = {v: k for k, v in self.itos.items()}
+        # Set the frequency threshold for adding words to the vocabulary
         self.freq_threshold = freq_threshold
 
     def __len__(self):
@@ -102,6 +113,12 @@ class Vocabulary:
     def tokenize(text):
         return [token.text.lower() for token in spacy_eng.tokenizer(text)]
 
+    #The frequency threshold is used to filter out infrequent words from the vocabulary. 
+    # Words that appear less frequently than the threshold are not added to the vocabulary.
+    #  This helps in reducing the size of the vocabulary and focusing on more common words, 
+    # which can improve the efficiency and performance of the model. 
+    # When a word's frequency reaches the threshold, it is added to the stoi and itos dictionaries 
+    # to ensure that only sufficiently frequent words are included in the vocabulary.
     def build_vocab(self,sentence_list):
         frequencies = Counter()
         idx = 4
@@ -110,12 +127,15 @@ class Vocabulary:
                 frequencies[word] += 1
 
                 if frequencies[word] == self.freq_threshold:
+                    # Add the word to the stoi dictionary with a unique index
                     self.stoi[word] = idx
+                    # Add the index-to-word mapping to the itos dictionary
                     self.itos[idx] = word
                     idx += 1
 
     def numericalize(self,text):
         tokenized_text = self.tokenize(text)
+        # Convert each token to its corresponding index using the stoi dictionary
         return [self.stoi[token] if token in self.stoi else self.stoi["<UNK>"] for token in tokenized_text]
 
 
@@ -263,16 +283,16 @@ batch = next(dataiter)
 images, captions = batch
 
 #showing info of image in single batch
-for i in range(BATCH_SIZE):
-    img,cap = images[i],captions[i]
-    print(f"captions - {captions[i]}")
-    print(f"image - {images[i]}")
-    caption_label = [dataset.vocab.itos[token] for token in cap.tolist()]
-    eos_index = caption_label.index('<EOS>')
-    caption_label = caption_label[1:eos_index]
-    caption_label = ' '.join(caption_label)
-    show_image(img,caption_label)
-    plt.show()
+# for i in range(BATCH_SIZE):
+#     img,cap = images[i],captions[i]
+#     print(f"captions - {captions[i]}")
+#     print(f"image - {images[i]}")
+#     caption_label = [dataset.vocab.itos[token] for token in cap.tolist()]
+#     eos_index = caption_label.index('<EOS>')
+#     caption_label = caption_label[1:eos_index]
+#     caption_label = ' '.join(caption_label)
+#     show_image(img,caption_label)
+#     plt.show()
 
 
 
@@ -449,13 +469,15 @@ def load_checkpoint(filename="checkpoint.pth"):
         return start_epoch
     return 1  # Start from epoch 1 if no checkpoint exists
 
-!pip uninstall torch torchtext -y
-!pip install torch torchtext --no-cache-dir
+#!pip uninstall torch torchtext -y
+#torchtest dev has paused a year back so use nltk for bleu score
+#!pip install torch torchtext --no-cache-dir
+#!pip install torchtext --no-cache-dir
 
 
 import nltk
 from nltk.translate.bleu_score import sentence_bleu, SmoothingFunction
-from torchtext.data.metrics import bleu_score
+#from torchtext.data.metrics import bleu_score
 
 # Ensure output directory exists
 output_dir = "bleu_scores"
@@ -464,9 +486,9 @@ os.makedirs(output_dir, exist_ok=True)
 # **BLEU Score Calculation Function**
 def calculate_bleu(reference, candidate):
     """Computes BLEU-4 score for generated captions."""
-    #smoothie = SmoothingFunction().method4  # Smoothing function for better BLEU score
-    #return sentence_bleu([reference], candidate, weights=(0.25, 0.25, 0.25, 0.25), smoothing_function=smoothie)
-    return bleu_score([reference], candidate)
+    smoothie = SmoothingFunction().method4  # Smoothing function for better BLEU score
+    return sentence_bleu([reference], candidate, weights=(0.25, 0.25, 0.25, 0.25), smoothing_function=smoothie)
+    #return bleu_score([reference], candidate)
 
 
 # Hyperparameters
@@ -493,15 +515,21 @@ bleu_scores = []
 #start_epoch = load_checkpoint()
 start_epoch=1
 
-num_epochs = 10
-print_every = 2000
+num_epochs = 1
+print_every = 1
+max_batches = 2  # Limit the number of batches
+max_val_batches = 2  # Limit validation to a few batches to debug bleu score
 
+print(f"started training with {num_epochs} epochs")
 # Training Loop
 for epoch in range(start_epoch, num_epochs + 1):
     model.train()
     running_loss = 0.0
 
     for idx, (image, captions) in enumerate(train_loader):
+        if idx >= max_batches:
+            print(f"stopped training at {idx} batches")
+            break  # Stop after a few batches
         image, captions = image.to(device), captions.to(device)
         optimizer.zero_grad()
 
@@ -522,42 +550,51 @@ for epoch in range(start_epoch, num_epochs + 1):
     avg_train_loss = running_loss / len(train_loader)
     train_losses.append(avg_train_loss)
     # Save checkpoint after each epoch
-    save_checkpoint(epoch, model, optimizer, running_loss)
+    #save_checkpoint(epoch, model, optimizer, running_loss)
 
     # **Validation Step**
     model.eval()
     val_loss = 0.0
     total_bleu = 0
     with torch.no_grad():
-        for image, captions in val_loader:
+        for idx, (image, captions) in enumerate(val_loader):
+            if idx >= max_val_batches:
+               print(f"stopped val at {idx} batches")
+               break  # Stop early
             image, captions = image.to(device), captions.to(device)
             outputs = model(image, captions)
             loss = criterion(outputs.view(-1, vocab_size), captions.view(-1))
             val_loss += loss.item()
+            for img, cap in zip(image, captions):
+                features = model.encoder(img.unsqueeze(0))#img[0:1].to(device))
+                caps = model.decoder.generate_caption(features.unsqueeze(0), vocab=dataset.vocab)
+                caption = ' '.join(caps)
+                #print(f"Generated Caption: {caption}")
+                #print(f"Shape of img[0]: {img[0].shape}")
+                show_image(img[0], title=caption)
+                reference = [dataset.vocab.itos[idx] for idx in cap.cpu().numpy() if idx != 0]  # Ignore padding
+                candidate = caption
+                bleu_score = calculate_bleu(reference, candidate)
+                total_bleu += bleu_score
 
-    #print(f"Validation Loss after Epoch {epoch}: {val_loss / len(val_loader):.4f}")
+    num_val_samples = len(val_loader.dataset)
+    #print(f"Avg Validation Loss after Epoch [{epoch}/{num_epochs}]: {val_loss / len(val_loader):.4f}")
 
     # **Generate a caption for an image from the validation set**
     #with torch.no_grad():
      #   val_iter = iter(val_loader)
       #  img, _ = next(val_iter)
-    for img, cap in zip(image, captions):
-        features = model.encoder(img.unsqueeze(0))#img[0:1].to(device))
-        caps = model.decoder.generate_caption(features.unsqueeze(0), vocab=dataset.vocab)
-        caption = ' '.join(caps)
-        print(f"Generated Caption: {caption}")
-        print(f"Shape of img[0]: {img[0].shape}")
-        show_image(img[0], title=caption)
-        reference = [dataset.vocab.itos[idx] for idx in cap.cpu().numpy() if idx != 0]  # Ignore padding
-        candidate = caption
-        bleu_score = calculate_bleu(reference, candidate)
-        total_bleu += bleu_score
+
 
     avg_val_loss = val_loss / len(val_loader)
-    avg_bleu = total_bleu / len(val_loader.dataset)
+    #avg_bleu = total_bleu / len(val_loader.dataset)
+    avg_bleu = total_bleu / float(num_val_samples) if num_val_samples > 0 else 0  # Ensure float division to avoid int division resulting in zero always  
+    print(f"Total BLEU: {total_bleu}, Num Samples: {num_val_samples}, avg_bleu: {avg_bleu} ")
     val_losses.append(avg_val_loss)
     bleu_scores.append(avg_bleu)
-    print(f"Epoch {epoch} | Train Loss: {avg_train_loss:.4f} | Val Loss: {avg_val_loss:.4f} | Validation BLEU-4: {avg_bleu:.4f}")
+    #print(f"Epoch {epoch} | Train Loss: {avg_train_loss:.4f} | Val Loss: {avg_val_loss:.4f} | Final bleu: {bleu_score} Validation Avg BLEU-4: {avg_bleu:.4f}")
+    #avg bleu score is very small so show 6 decimals and as percent
+    print(f"Epoch {epoch} | Train Loss: {avg_train_loss:.4f} | Val Loss: {avg_val_loss:.4f} | Final bleu: {bleu_score:.6%} Validation Avg BLEU-4: {avg_bleu:.6%}")
 
 print(f"Length of train_losses: {len(train_losses)}")
 print(f"Length of val_losses: {len(val_losses)}")
@@ -604,7 +641,7 @@ with torch.no_grad():
             features = model.encoder(image[i:i+1])
             caps = model.decoder.generate_caption(features.unsqueeze(0), vocab=dataset.vocab)
             caption = ' '.join(caps)
-            print(f"Generated Caption: {caption}")
+            #print(f"Generated Caption: {caption}")
             show_image(img[0], title=caption)
             reference = [dataset.vocab.itos[idx] for idx in captions[i].cpu().numpy() if idx != 0]  # Ignore padding
             candidate = caption
@@ -612,61 +649,4 @@ with torch.no_grad():
             total_bleu += bleu_score
 avg_test_bleu = total_bleu / len(test_loader.dataset)
 print(f"Final Test Loss: {test_loss / len(test_loader):.4f}")
-print(f"Final Test BLEU-4 Score: {avg_test_bleu:.4f}")
-
-
-
-
-# # Filter rows where the 'image' column contains a suffix after '.jpg'
-# invalid_images = df[df['image'].str.contains(r'\.jpg\.\d+$')]
-# print("Invalid image filenames:")
-# print(invalid_images['image'].tolist())
-
-num_epochs = 20
-print_every = 2000
-
-for epoch in range(1,num_epochs+1):
-    for idx, (image, captions) in enumerate(iter(data_loader)):
-        image,captions = image.to(device),captions.to(device)
-        '''
-        # Filter out placeholder data
-        valid_indices = (images.sum(dim=[1, 2, 3]) != 0)
-        images = images[valid_indices]
-        captions = captions[valid_indices]
-
-        if len(images) == 0:
-            print(f"Batch {idx} skipped due to all missing images.")
-            continue
-        '''
-        # Zero the gradients.
-        optimizer.zero_grad()
-
-        # Feed forward
-        outputs = model(image, captions)
-
-        # Calculate the batch loss.
-        loss = criterion(outputs.view(-1, vocab_size), captions.view(-1))
-
-
-        # Backward pass.
-        loss.backward()
-
-        # Update the parameters in the optimizer.
-        optimizer.step()
-
-        if (idx+1)%print_every == 0:
-            print("Epoch: {} loss: {:.5f}".format(epoch,loss.item()))
-
-            #generate the caption
-            model.eval()
-            with torch.no_grad():
-                dataiter = iter(data_loader)
-                img,_ = next(dataiter)
-                features = model.encoder(img[0:1].to(device))
-                print(f"features shape - {features.shape}")
-                caps = model.decoder.generate_caption(features.unsqueeze(0),vocab=dataset.vocab)
-                caption = ' '.join(caps)
-                print(caption)
-                show_image(img[0],title=caption)
-
-            model.train()
+print(f"Final Test bleu score: {bleu_score} Avg BLEU-4 Score: {avg_test_bleu:.4f}")
