@@ -6,47 +6,44 @@ import matplotlib.image as mpimg
 import os
 import shutil
 import torch
+from datetime import datetime
 
-# Install the CLIP module
-#!pip install git+https://github.com/openai/CLIP.git
 
-import clip  # Import CLIP
-
+print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] started execution")
 os.makedirs("/content/Image_Captioning/", exist_ok=True)
 %cd /content/Image_Captioning/
-# if os.path.exists('dataset'):
-#     shutil.rmtree('dataset', ignore_errors=True)
+if os.path.exists('dataset'):
+    shutil.rmtree('dataset', ignore_errors=True)
 os.makedirs("dataset", exist_ok=True)
 os.makedirs("checkpoints", exist_ok=True)
 
-# shutil.rmtree('dataset/__MACOSX', ignore_errors=True)
-# if os.path.exists('dataset/Flickr8k_Dataset.zip'):
-#     os.remove('dataset/Flickr8k_Dataset.zip')
-# if os.path.exists('dataset/Flickr8k_text.zip'):
-#     os.remove('dataset/Flickr8k_text.zip')
 
-# !wget -q https://github.com/jbrownlee/Datasets/releases/download/Flickr8k/Flickr8k_Dataset.zip -P dataset/
+# Install the CLIP module
+!pip -q install git+https://github.com/openai/CLIP.git
 
-# !unzip -q dataset/Flickr8k_Dataset.zip -d dataset/
+import clip  # Import CLIP
+
+!wget -q https://github.com/jbrownlee/Datasets/releases/download/Flickr8k/Flickr8k_Dataset.zip -P dataset/
+
+!unzip -q dataset/Flickr8k_Dataset.zip -d dataset/
 
 
 
-# !wget -q https://github.com/jbrownlee/Datasets/releases/download/Flickr8k/Flickr8k_text.zip -P dataset/
+!wget -q https://github.com/jbrownlee/Datasets/releases/download/Flickr8k/Flickr8k_text.zip -P dataset/
 
-# !unzip -q dataset/Flickr8k_text.zip -d dataset/
+!unzip -q dataset/Flickr8k_text.zip -d dataset/
 
-# shutil.rmtree('dataset/__MACOSX', ignore_errors=True)
-# if os.path.exists('dataset/Flickr8k_Dataset.zip'):
-#     os.remove('dataset/Flickr8k_Dataset.zip')
-# if os.path.exists('dataset/Flickr8k_text.zip'):
-#     os.remove('dataset/Flickr8k_text.zip')
 
 image_data_location = os.path.join("dataset/Flicker8k_Dataset")
-# Get a list of files in the directory
-files = [f for f in os.listdir(image_data_location) if os.path.isfile(os.path.join(image_data_location, f))]
+# Ensure the directory exists before attempting to list its contents
+if os.path.exists(image_data_location):
+    # Get a list of files in the directory
+    files = [f for f in os.listdir(image_data_location) if os.path.isfile(os.path.join(image_data_location, f))]
 
-# Print the number of files
-print(f"Number of files in the directory: {len(files)}")
+    # Print the number of files
+    print(f"Number of files in the directory: {len(files)}")
+else:
+    print(f"Directory {image_data_location} does not exist.")
 caption_data_location = os.path.join("dataset/Flickr8k.token.txt")
 
 image_data_location
@@ -419,25 +416,56 @@ test_loader = DataLoader(
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 device
 
-# Checkpoint function
-def save_checkpoint(epoch, model, optimizer, loss, filename="checkpoint.pth"):
+import os
+import torch
+from google.colab import drive
+#fixme: mount only if not already mounted
+drive.mount('/content/drive')
+!ls -ld "/content/drive/My Drive/"
+
+def save_checkpoint(epoch, model, optimizer, loss, filename="checkpoint.pth", drive_enabled=False):
     checkpoint = {
         "epoch": epoch,
         "model_state": model.state_dict(),
         "optimizer_state": optimizer.state_dict(),
         "loss": loss
     }
-    torch.save(checkpoint, filename)
-    print(f"Checkpoint saved at epoch {epoch}")
+    
+    if drive_enabled:
+        save_dir = "/content/drive/My Drive/checkpoints/clip-transformer/"
+        os.makedirs(save_dir, exist_ok=True)
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        save_path = os.path.join(save_dir, f"{timestamp}_{filename}")
+    else:
+        save_path = filename
+    
+    torch.save(checkpoint, save_path)
+    print(f"Checkpoint saved at epoch {epoch} to {save_path}")
 
-def load_checkpoint(filename="checkpoint.pth"):
-    if os.path.isfile(filename):
-        checkpoint = torch.load(filename)
+def load_checkpoint(model, optimizer, filename="checkpoint.pth", drive_enabled=False):
+    if drive_enabled:
+        #drive.mount('/content/drive')
+        load_dir = "/content/drive/My Drive/checkpoints/clip-transformer/"
+        if not os.path.isdir(load_dir):  # Check if directory exists
+            print("No checkpoint dirs found. Starting from epoch 1.")
+            return 1
+        checkpoints = sorted(os.listdir(load_dir), reverse=True)
+        if not checkpoints:
+            print("No checkpoints found. Starting from epoch 1.")
+            return 1
+        load_path = os.path.join(load_dir, checkpoints[0])
+    else:
+        load_path = "checkpoint.pth"
+    
+    if os.path.isfile(load_path):
+        checkpoint = torch.load(load_path)
         model.load_state_dict(checkpoint["model_state"])
         optimizer.load_state_dict(checkpoint["optimizer_state"])
         start_epoch = checkpoint["epoch"] + 1
-        print(f"Checkpoint loaded from epoch {start_epoch - 1}")
+        print(f"Starting from epoch {start_epoch} as checkpoint loaded from epoch {start_epoch - 1}")
         return start_epoch
+    
+    print("Starting from epoch 1 as no saved checkpoint exists")
     return 1  # Start from epoch 1 if no checkpoint exists
 
 #!pip uninstall torch torchtext -y
@@ -485,23 +513,24 @@ val_losses = []
 bleu_scores = []
 
 # Load checkpoint if available
-#start_epoch = load_checkpoint()
-start_epoch=1
+start_epoch = load_checkpoint(model, optimizer, drive_enabled=True)
+#start_epoch=1
 
-num_epochs = 1
-print_every = 1
+num_epochs = 2
+print_every = 500
+early_stopping = early_val_stopping = early_test_stopping = False
 max_batches = 2  # Limit the number of batches
 max_val_batches = 2  # Limit validation to a few batches to debug bleu score
 max_test_batches = 2  # Limit validation to a few batches to debug bleu score
 
-print(f"started training with {num_epochs} epochs")
+print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] started training with {num_epochs} epochs")
 # Training Loop
 for epoch in range(start_epoch, num_epochs + 1):
     model.train()
     running_loss = 0.0
 
     for idx, (image, captions) in enumerate(train_loader):
-        if idx >= max_batches:
+        if early_stopping and idx >= max_batches:
             print(f"stopped training at {idx} batches")
             break  # Stop after a few batches
         image, captions = image.to(device), captions.to(device)
@@ -519,12 +548,10 @@ for epoch in range(start_epoch, num_epochs + 1):
         running_loss += loss.item()
 
         if (idx + 1) % print_every == 0:
-            print(f"Epoch [{epoch}/{num_epochs}], Step [{idx+1}/{len(train_loader)}], Loss: {loss.item():.4f}")
+            print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Epoch [{epoch}/{num_epochs}], Step [{idx+1}/{len(train_loader)}], Loss: {loss.item():.4f}")
 
     avg_train_loss = running_loss / len(train_loader)
     train_losses.append(avg_train_loss)
-    # Save checkpoint after each epoch
-    #save_checkpoint(epoch, model, optimizer, running_loss)
 
     # **Validation Step**
     model.eval()
@@ -532,7 +559,7 @@ for epoch in range(start_epoch, num_epochs + 1):
     total_bleu = 0
     with torch.no_grad():
         for idx, (image, captions) in enumerate(val_loader):
-            if idx >= max_val_batches:
+            if early_val_stopping and idx >= max_val_batches:
                print(f"stopped val at {idx} batches")
                break  # Stop early
             image, captions = image.to(device), captions.to(device)
@@ -549,7 +576,7 @@ for epoch in range(start_epoch, num_epochs + 1):
                 candidate = caption
                 bleu_score = calculate_bleu(reference, candidate)
                 total_bleu += bleu_score
-            show_image(img[0], title=caption)
+        show_image(img[0], title=caption)
 
     num_val_samples = len(val_loader.dataset)
     #print(f"Avg Validation Loss after Epoch [{epoch}/{num_epochs}]: {val_loss / len(val_loader):.4f}")
@@ -568,11 +595,14 @@ for epoch in range(start_epoch, num_epochs + 1):
     bleu_scores.append(avg_bleu)
     #print(f"Epoch {epoch} | Train Loss: {avg_train_loss:.4f} | Val Loss: {avg_val_loss:.4f} | Final bleu: {bleu_score} Validation Avg BLEU-4: {avg_bleu:.4f}")
     #avg bleu score is very small so show 6 decimals and as percent
-    print(f"Epoch {epoch} | Train Loss: {avg_train_loss:.4f} | Val Loss: {avg_val_loss:.4f} | Final bleu: {bleu_score:.6%} Validation Avg BLEU-4: {avg_bleu:.6%}")
+    print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Epoch {epoch} | Train Loss: {avg_train_loss:.4f} | Val Loss: {avg_val_loss:.4f} | Final bleu: {bleu_score:.6%} Validation Avg BLEU-4: {avg_bleu:.6%}")
 
 print(f"Length of train_losses: {len(train_losses)}")
 print(f"Length of val_losses: {len(val_losses)}")
 print(f"Expected num_epochs: {num_epochs}")
+#Save checkpoint after each epoch
+save_checkpoint(epoch, model, optimizer, running_loss, drive_enabled=True)
+print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Checkpoint saved after epoch {epoch}")
 
 
 # **Plot BLEU-4 Score and Loss over Epochs**
@@ -603,9 +633,10 @@ plt.show()
 # **Testing Phase**
 model.eval()
 test_loss = 0.0
+total_test_bleu = 0
 with torch.no_grad():
     for idx, (image, captions) in enumerate(test_loader):
-        if idx >= max_test_batches:
+        if early_test_stopping and idx >= max_test_batches:
             print(f"stopped test at {idx} batches")
             break  # Stop early
         image, captions = image.to(device), captions.to(device)
@@ -622,8 +653,9 @@ with torch.no_grad():
             reference = [dataset.vocab.itos[idx] for idx in captions[i].cpu().numpy() if idx != 0]  # Ignore padding
             candidate = caption
             bleu_score = calculate_bleu(reference, candidate)
-            total_bleu += bleu_score
-        show_image(img[0], title=caption)
-avg_test_bleu = total_bleu / len(test_loader.dataset)
+            total_test_bleu += bleu_score
+    show_image(img[0], title=caption)
+num_test_samples = len(test_loader.dataset)
+avg_test_bleu = total_test_bleu / float(num_test_samples) if num_test_samples > 0 else 0  # Ensure float division to avoid int division resulting in zero always  
 print(f"Final Test Loss: {test_loss / len(test_loader):.4f}")
-print(f"Final Test bleu score: {bleu_score} Avg BLEU-4 Score: {avg_test_bleu:.4f}")
+print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Final Test bleu score: {bleu_score:.6%}, Num Samples: {num_test_samples}, Test Avg BLEU-4 Score: {avg_test_bleu:.6%}")
