@@ -8,86 +8,6 @@ import shutil
 import torch
 from datetime import datetime
 
-
-print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] started execution")
-#os.makedirs("/content/Image_Captioning/", exist_ok=True)
-#%cd /content/Image_Captioning/
-# if os.path.exists('dataset'):
-#     shutil.rmtree('dataset', ignore_errors=True)
-os.makedirs("dataset", exist_ok=True)
-os.makedirs("checkpoints", exist_ok=True)
-
-
-# Install the CLIP module
-#!pip -q install git+https://github.com/openai/CLIP.git
-
-import clip  # Import CLIP
-
-#!wget -q https://github.com/jbrownlee/Datasets/releases/download/Flickr8k/Flickr8k_Dataset.zip -P dataset/
-
-#!unzip -q dataset/Flickr8k_Dataset.zip -d dataset/
-
-
-
-#!wget -q https://github.com/jbrownlee/Datasets/releases/download/Flickr8k/Flickr8k_text.zip -P dataset/
-
-#!unzip -q dataset/Flickr8k_text.zip -d dataset/
-
-
-image_data_location = os.path.join("dataset/Flicker8k_Dataset")
-# Ensure the directory exists before attempting to list its contents
-if os.path.exists(image_data_location):
-    # Get a list of files in the directory
-    files = [f for f in os.listdir(image_data_location) if os.path.isfile(os.path.join(image_data_location, f))]
-
-    # Print the number of files
-    print(f"Number of files in the directory: {len(files)}")
-else:
-    print(f"Directory {image_data_location} does not exist.")
-caption_data_location = os.path.join("dataset/Flickr8k.token.txt")
-
-#image_data_location
-
-captions_data = []
-with open(caption_data_location, 'r') as file:
-    for line in file:
-        # Split lines based on your format
-        row = line.strip().split()  # Adjust split logic as needed
-        captions_data.append(row)
-
-# Convert to DataFrame
-df1 = pd.DataFrame(captions_data)
-df1.head()
-print(df1.shape)
-
-# Combine caption parts (columns 2 onwards) into a single string
-df1["caption"] = df1.iloc[:, 1:].apply(lambda x: " ".join(filter(None, x)), axis=1)
-# Extract image name by removing the '#<number>' suffix
-df1["image"] = df1[0].str.split("#").str[0]
-# Keep only the relevant columns
-cleaned_df = df1[["image", "caption"]]
-# Remove anything after .jpg in the 'image' column
-cleaned_df['image'] = cleaned_df['image'].str.replace(r'(\.jpg).*$', r'\1', regex=True)
-# Filter out rows where the image column has the specified value
-df = cleaned_df[cleaned_df['image'] != "2258277193_586949ec62.jpg"]
-# Reset index for a clean DataFrame
-df.reset_index(drop=True, inplace=True)
-df.shape
-
-
-
-#df.head()
-
-# data_idx = 11
-# image_path = image_data_location + "/" + df.iloc[data_idx,0]
-# # print( df.iloc[data_idx,:])
-# img = mpimg.imread(image_path)
-# plt.imshow(img)
-# plt.show()
-
-# for i in range(data_idx, data_idx+5):
-#     print(f"Caption - {df.iloc[i,1]}")
-
 import os
 from collections import Counter
 import spacy
@@ -96,9 +16,27 @@ from torch.nn.utils.rnn import pad_sequence
 from torch.utils.data import DataLoader, Dataset
 import torchvision.transforms as T
 
+import torch
+import torch.optim as optim
+import os
+
+# Assuming `dataset` is your image-caption dataset
+from torch.utils.data import random_split, DataLoader
+
+
+
+import os
+import torch
+
+
+
+import torch
+import torch.nn as nn
+import torchvision.models as models
+import torch.optim as optim
+
+import matplotlib.pyplot as plt
 spacy_eng = spacy.load('en_core_web_sm')
-# text = "This is a good place to find a city"
-# [token.text.lower() for token in spacy_eng.tokenizer(text)]
 
 class Vocabulary:
     def __init__(self, freq_threshold):
@@ -108,6 +46,8 @@ class Vocabulary:
         self.stoi = {v: k for k, v in self.itos.items()}
         # Set the frequency threshold for adding words to the vocabulary
         self.freq_threshold = freq_threshold
+        # text = "This is a good place to find a city"
+        # [token.text.lower() for token in spacy_eng.tokenizer(text)]
 
     def __len__(self):
         return len(self.itos)
@@ -197,11 +137,6 @@ class CustomDataset(Dataset):
             return img, torch.zeros(len(caption_vec), dtype=torch.long)
         return img, torch.tensor(caption_vec,dtype=torch.long)
 
-#defing the transform to be applied
-transforms = T.Compose([
-    T.Resize((224,224)),
-    T.ToTensor()
-])
 
 def show_image(inp, title=None):
     """Imshow for Tensor"""
@@ -230,20 +165,6 @@ def show_image(inp, title=None):
     plt.axis("off")
     plt.show()
 
-# testing the dataset
-dataset = CustomDataset(
-        root_dir = image_data_location,
-        df = df,
-        transform = transforms
-)
-
-img, caps = dataset[0]
-# print(caps)
-# show_image(img,"Image")
-# print("Token :",caps)
-# print("Sentence: ")
-# print([dataset.vocab.itos[token] for token in caps.tolist()])
-
 class CapsCollate:
     def __init__(self,pad_idx,batch_first=False):
         self.pad_idx = pad_idx
@@ -260,12 +181,6 @@ class CapsCollate:
         targets = pad_sequence(targets, batch_first=self.batch_first, padding_value=self.pad_idx)
         return imgs,targets
 
-
-import torch
-import torch.nn as nn
-import torchvision.models as models
-import torch.optim as optim
-
 # vgg16 = models.resnet50(pretrained=True)
 # for param in vgg16.parameters():
 #     param.requires_grad_(False)
@@ -278,6 +193,12 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 class EncoderCLIP(nn.Module):
     def __init__(self, embed_size):
         super(EncoderCLIP, self).__init__()
+        try:
+            import clip
+        except ModuleNotFoundError:
+            # Install the CLIP module
+            !pip -q install git+https://github.com/openai/CLIP.git
+            import clip  # Import CLIP
         self.model, _ = clip.load("ViT-B/32", device=device)  # Load CLIP model
         self.embed = nn.Linear(self.model.visual.output_dim, embed_size)
 
@@ -336,21 +257,6 @@ class EncoderDecoder(nn.Module):
         features = self.encoder(images)
         outputs = self.decoder(features, captions)
         return outputs
-import torch
-import torch.optim as optim
-import os
-
-# Assuming `dataset` is your image-caption dataset
-from torch.utils.data import random_split, DataLoader
-
-
-
-import os
-import torch
-#from google.colab import drive
-#fixme: mount only if not already mounted
-# drive.mount('/content/drive')
-# !ls -ld "/content/drive/My Drive/"
 
 def save_checkpoint(epoch, model, optimizer, loss, filename="checkpoint.pth", drive_enabled=False):
     checkpoint = {
@@ -373,7 +279,10 @@ def save_checkpoint(epoch, model, optimizer, loss, filename="checkpoint.pth", dr
 
 def load_checkpoint(model, optimizer, filename="checkpoint.pth", drive_enabled=False):
     if drive_enabled:
-        #drive.mount('/content/drive')
+        from google.colab import drive
+        #fixme: mount only if not already mounted
+        drive.mount('/content/drive')
+        !ls -ld "/content/drive/My Drive/"
         load_dir = "/content/drive/My Drive/checkpoints/clip-transformer/"
         if not os.path.isdir(load_dir):  # Check if directory exists
             print("No checkpoint dirs found. Starting from epoch 1.")
@@ -384,7 +293,8 @@ def load_checkpoint(model, optimizer, filename="checkpoint.pth", drive_enabled=F
             return 1
         load_path = os.path.join(load_dir, checkpoints[0])
     else:
-        load_path = "checkpoint.pth"
+        load_dir = "checkpoints"
+        load_path = os.path.join(load_dir, "checkpoint.pth")
     
     if os.path.isfile(load_path):
         checkpoint = torch.load(load_path)
@@ -403,23 +313,113 @@ def load_checkpoint(model, optimizer, filename="checkpoint.pth", drive_enabled=F
 #!pip install torchtext --no-cache-dir
 
 
-#import nltk
-#from nltk.translate.bleu_score import sentence_bleu, SmoothingFunction
-#from torchtext.data.metrics import bleu_score
-
-# Ensure output directory exists
-output_dir = "bleu_scores"
-os.makedirs(output_dir, exist_ok=True)
 
 # **BLEU Score Calculation Function**
 def calculate_bleu(reference, candidate):
     """Computes BLEU-4 score for generated captions."""
+    import nltk
+    from nltk.translate.bleu_score import sentence_bleu, SmoothingFunction
+    #from torchtext.data.metrics import bleu_score
     smoothie = SmoothingFunction().method4  # Smoothing function for better BLEU score
     return sentence_bleu([reference], candidate, weights=(0.25, 0.25, 0.25, 0.25), smoothing_function=smoothie)
     #return bleu_score([reference], candidate)
 
-if "__name__" == "__main__":
+def load_data():
+    #os.makedirs("/content/Image_Captioning/", exist_ok=True)
+    #%cd /content/Image_Captioning/
 
+    os.makedirs("checkpoints", exist_ok=True)
+        
+    if os.path.exists('dataset'):
+         #shutil.rmtree('dataset', ignore_errors=True)
+        print("dataset folder already exists")
+    else:
+        os.makedirs("dataset", exist_ok=True)
+        !wget -q https://github.com/jbrownlee/Datasets/releases/download/Flickr8k/Flickr8k_Dataset.zip -P dataset/
+        !unzip -q dataset/Flickr8k_Dataset.zip -d dataset/
+        !wget -q https://github.com/jbrownlee/Datasets/releases/download/Flickr8k/Flickr8k_text.zip -P dataset/
+        !unzip -q dataset/Flickr8k_text.zip -d dataset/
+    
+    
+    image_data_location = os.path.join("dataset/Flicker8k_Dataset")
+    # Ensure the directory exists before attempting to list its contents
+    if os.path.exists(image_data_location):
+        # Get a list of files in the directory
+        files = [f for f in os.listdir(image_data_location) if os.path.isfile(os.path.join(image_data_location, f))]
+    
+        # Print the number of files
+        print(f"Number of files in the directory: {len(files)}")
+    else:
+        print(f"Directory {image_data_location} does not exist.")
+    caption_data_location = os.path.join("dataset/Flickr8k.token.txt")
+    
+    #image_data_location
+    
+    captions_data = []
+    with open(caption_data_location, 'r') as file:
+        for line in file:
+            # Split lines based on your format
+            row = line.strip().split()  # Adjust split logic as needed
+            captions_data.append(row)
+    
+    # Convert to DataFrame
+    df1 = pd.DataFrame(captions_data)
+    df1.head()
+    print(df1.shape)
+    # Combine caption parts (columns 2 onwards) into a single string
+    df1["caption"] = df1.iloc[:, 1:].apply(lambda x: " ".join(filter(None, x)), axis=1)
+    # Extract image name by removing the '#<number>' suffix
+    df1["image"] = df1[0].str.split("#").str[0]
+    # Keep only the relevant columns
+    cleaned_df = df1[["image", "caption"]]
+    # Remove anything after .jpg in the 'image' column
+    cleaned_df['image'] = cleaned_df['image'].str.replace(r'(\.jpg).*$', r'\1', regex=True)
+    # Filter out rows where the image column has the specified value
+    df = cleaned_df[cleaned_df['image'] != "2258277193_586949ec62.jpg"]
+    # Reset index for a clean DataFrame
+    df.reset_index(drop=True, inplace=True)
+    df.shape
+    #df.head()
+    # data_idx = 11
+    # image_path = image_data_location + "/" + df.iloc[data_idx,0]
+    # # print( df.iloc[data_idx,:])
+    # img = mpimg.imread(image_path)
+    # plt.imshow(img)
+    # plt.show()
+    
+    # for i in range(data_idx, data_idx+5):
+    #     print(f"Caption - {df.iloc[i,1]}")
+
+    
+    #defing the transform to be applied
+    transforms = T.Compose([
+        T.Resize((224,224)),
+        T.ToTensor()
+    ])
+    # testing the dataset
+    dataset = CustomDataset(
+            root_dir = image_data_location,
+            df = df,
+            transform = transforms
+    )
+    
+    #img, caps = dataset[0]
+    # print(caps)
+    # show_image(img,"Image")
+    # print("Token :",caps)
+    # print("Sentence: ")
+    # print([dataset.vocab.itos[token] for token in caps.tolist()])
+    return dataset
+
+
+if __name__ == "__main__" or "google.colab" in str(get_ipython()):
+
+    run_mode = input("Enter the run mode tt(for train_and_test)/t(for test only): ")
+    early_stopping_enabled = input("enable early stopping: y/n").strip().lower() == "y"
+    drive_enabled = input("enable google drive: y/n").strip().lower() == "y"
+    print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] started execution")
+
+    dataset = load_data()
     #writing the dataloader
     #setting the constants
     BATCH_SIZE = 4
@@ -510,7 +510,10 @@ if "__name__" == "__main__":
     criterion = nn.CrossEntropyLoss(ignore_index=dataset.vocab.stoi["<PAD>"])
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)
 
-    import matplotlib.pyplot as plt
+
+    # Ensure output directory exists
+    output_dir = "bleu_scores"
+    os.makedirs(output_dir, exist_ok=True)
 
     # Store BLEU scores and losses
     train_losses = []
@@ -518,120 +521,121 @@ if "__name__" == "__main__":
     bleu_scores = []
 
     # Load checkpoint if available
-    start_epoch = load_checkpoint(model, optimizer, drive_enabled=True)
+    start_epoch = load_checkpoint(model, optimizer, drive_enabled=drive_enabled)
     #start_epoch=1
 
     num_epochs = 2
     print_every = 500
-    early_stopping = early_val_stopping = early_test_stopping = False
+    early_stopping = early_val_stopping = early_test_stopping = early_stopping_enabled
     max_batches = 2  # Limit the number of batches
     max_val_batches = 2  # Limit validation to a few batches to debug bleu score
     max_test_batches = 2  # Limit validation to a few batches to debug bleu score
 
-    print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] started training with {num_epochs} epochs")
-    # Training Loop
-    for epoch in range(start_epoch, num_epochs + 1):
-        model.train()
-        running_loss = 0.0
+    if run_mode == "tt":
+        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] started training with {num_epochs} epochs")
+        # Training Loop
+        for epoch in range(start_epoch, num_epochs + 1):
+            model.train()
+            running_loss = 0.0
 
-        for idx, (image, captions) in enumerate(train_loader):
-            if early_stopping and idx >= max_batches:
-                print(f"stopped training at {idx} batches")
-                break  # Stop after a few batches
-            image, captions = image.to(device), captions.to(device)
-            optimizer.zero_grad()
-
-            # Forward pass
-            outputs = model(image, captions)
-
-            # Compute loss
-            loss = criterion(outputs.view(-1, vocab_size), captions[:, 1:].contiguous().view(-1))  # Adjust target captions
-            loss.backward()
-
-            # Update weights
-            optimizer.step()
-            running_loss += loss.item()
-
-            if (idx + 1) % print_every == 0:
-                print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Epoch [{epoch}/{num_epochs}], Step [{idx+1}/{len(train_loader)}], Loss: {loss.item():.4f}")
-
-        avg_train_loss = running_loss / len(train_loader)
-        train_losses.append(avg_train_loss)
-
-        # **Validation Step**
-        model.eval()
-        val_loss = 0.0
-        total_bleu = 0
-        with torch.no_grad():
-            for idx, (image, captions) in enumerate(val_loader):
-                if early_val_stopping and idx >= max_val_batches:
-                    print(f"stopped val at {idx} batches")
-                    break  # Stop early
+            for idx, (image, captions) in enumerate(train_loader):
+                if early_stopping and idx >= max_batches:
+                    print(f"stopped training at {idx} batches")
+                    break  # Stop after a few batches
                 image, captions = image.to(device), captions.to(device)
+                optimizer.zero_grad()
+
+                # Forward pass
                 outputs = model(image, captions)
+
+                # Compute loss
                 loss = criterion(outputs.view(-1, vocab_size), captions[:, 1:].contiguous().view(-1))  # Adjust target captions
-                val_loss += loss.item()
-                for img, cap in zip(image, captions):
-                    features = model.encoder(img.unsqueeze(0))#img[0:1].to(device))
-                    caps = model.decoder.generate_caption(features, vocab=dataset.vocab)  # Adjust features dimensions
-                    caption = ' '.join(caps)
-                    #print(f"Generated Caption: {caption}")
-                    #print(f"Shape of img[0]: {img[0].shape}")
-                    reference = [dataset.vocab.itos[idx] for idx in cap.cpu().numpy() if idx != 0]  # Ignore padding
-                    candidate = caption
-                    bleu_score = calculate_bleu(reference, candidate)
-                    total_bleu += bleu_score
-            show_image(img[0], title=caption)
+                loss.backward()
 
-        num_val_samples = len(val_loader.dataset)
-        #print(f"Avg Validation Loss after Epoch [{epoch}/{num_epochs}]: {val_loss / len(val_loader):.4f}")
+                # Update weights
+                optimizer.step()
+                running_loss += loss.item()
 
-        # **Generate a caption for an image from the validation set**
-        #with torch.no_grad():
-        #   val_iter = iter(val_loader)
-        #  img, _ = next(val_iter)
+                if (idx + 1) % print_every == 0:
+                    print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Epoch [{epoch}/{num_epochs}], Step [{idx+1}/{len(train_loader)}], Loss: {loss.item():.4f}")
+
+            avg_train_loss = running_loss / len(train_loader)
+            train_losses.append(avg_train_loss)
+
+            # **Validation Step**
+            model.eval()
+            val_loss = 0.0
+            total_bleu = 0
+            with torch.no_grad():
+                for idx, (image, captions) in enumerate(val_loader):
+                    if early_val_stopping and idx >= max_val_batches:
+                        print(f"stopped val at {idx} batches")
+                        break  # Stop early
+                    image, captions = image.to(device), captions.to(device)
+                    outputs = model(image, captions)
+                    loss = criterion(outputs.view(-1, vocab_size), captions[:, 1:].contiguous().view(-1))  # Adjust target captions
+                    val_loss += loss.item()
+                    for img, cap in zip(image, captions):
+                        features = model.encoder(img.unsqueeze(0))#img[0:1].to(device))
+                        caps = model.decoder.generate_caption(features, vocab=dataset.vocab)  # Adjust features dimensions
+                        caption = ' '.join(caps)
+                        #print(f"Generated Caption: {caption}")
+                        #print(f"Shape of img[0]: {img[0].shape}")
+                        reference = [dataset.vocab.itos[idx] for idx in cap.cpu().numpy() if idx != 0]  # Ignore padding
+                        candidate = caption
+                        bleu_score = calculate_bleu(reference, candidate)
+                        total_bleu += bleu_score
+                show_image(img[0], title=caption)
+
+            num_val_samples = len(val_loader.dataset)
+            #print(f"Avg Validation Loss after Epoch [{epoch}/{num_epochs}]: {val_loss / len(val_loader):.4f}")
+
+            # **Generate a caption for an image from the validation set**
+            #with torch.no_grad():
+            #   val_iter = iter(val_loader)
+            #  img, _ = next(val_iter)
 
 
-        avg_val_loss = val_loss / len(val_loader)
-        #avg_bleu = total_bleu / len(val_loader.dataset)
-        avg_bleu = total_bleu / float(num_val_samples) if num_val_samples > 0 else 0  # Ensure float division to avoid int division resulting in zero always  
-        print(f"Total BLEU: {total_bleu}, Num Samples: {num_val_samples}, avg_bleu: {avg_bleu} ")
-        val_losses.append(avg_val_loss)
-        bleu_scores.append(avg_bleu)
-        #print(f"Epoch {epoch} | Train Loss: {avg_train_loss:.4f} | Val Loss: {avg_val_loss:.4f} | Final bleu: {bleu_score} Validation Avg BLEU-4: {avg_bleu:.4f}")
-        #avg bleu score is very small so show 6 decimals and as percent
-        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Epoch {epoch} | Train Loss: {avg_train_loss:.4f} | Val Loss: {avg_val_loss:.4f} | Final bleu: {bleu_score:.6%} Validation Avg BLEU-4: {avg_bleu:.6%}")
+            avg_val_loss = val_loss / len(val_loader)
+            #avg_bleu = total_bleu / len(val_loader.dataset)
+            avg_bleu = total_bleu / float(num_val_samples) if num_val_samples > 0 else 0  # Ensure float division to avoid int division resulting in zero always  
+            print(f"Total BLEU: {total_bleu}, Num Samples: {num_val_samples}, avg_bleu: {avg_bleu} ")
+            val_losses.append(avg_val_loss)
+            bleu_scores.append(avg_bleu)
+            #print(f"Epoch {epoch} | Train Loss: {avg_train_loss:.4f} | Val Loss: {avg_val_loss:.4f} | Final bleu: {bleu_score} Validation Avg BLEU-4: {avg_bleu:.4f}")
+            #avg bleu score is very small so show 6 decimals and as percent
+            print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Epoch {epoch} | Train Loss: {avg_train_loss:.4f} | Val Loss: {avg_val_loss:.4f} | Final bleu: {bleu_score:.6%} Validation Avg BLEU-4: {avg_bleu:.6%}")
 
-    print(f"Length of train_losses: {len(train_losses)}")
-    print(f"Length of val_losses: {len(val_losses)}")
-    print(f"Expected num_epochs: {num_epochs}")
-    #Save checkpoint after each epoch
-    save_checkpoint(epoch, model, optimizer, running_loss, drive_enabled=True)
-    print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Checkpoint saved after epoch {epoch}")
+        print(f"Length of train_losses: {len(train_losses)}")
+        print(f"Length of val_losses: {len(val_losses)}")
+        print(f"Expected num_epochs: {num_epochs}")
+        #Save checkpoint after each epoch
+        save_checkpoint(epoch, model, optimizer, running_loss, drive_enabled=True)
+        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Checkpoint saved after epoch {epoch}")
 
 
-    # **Plot BLEU-4 Score and Loss over Epochs**
-    fig, ax1 = plt.subplots(figsize=(8, 5))
+        # **Plot BLEU-4 Score and Loss over Epochs**
+        fig, ax1 = plt.subplots(figsize=(8, 5))
 
-    # Plot Loss (left y-axis)
-    ax1.set_xlabel('Epochs')
-    ax1.set_ylabel('Loss', color='red')
-    ax1.plot(range(1, num_epochs+1), train_losses, marker='o', linestyle='-', color='red', label='Train Loss')
-    ax1.plot(range(1, num_epochs+1), val_losses, marker='s', linestyle='--', color='orange', label='Val Loss')
-    ax1.tick_params(axis='y', labelcolor='red')
+        # Plot Loss (left y-axis)
+        ax1.set_xlabel('Epochs')
+        ax1.set_ylabel('Loss', color='red')
+        ax1.plot(range(1, num_epochs+1), train_losses, marker='o', linestyle='-', color='red', label='Train Loss')
+        ax1.plot(range(1, num_epochs+1), val_losses, marker='s', linestyle='--', color='orange', label='Val Loss')
+        ax1.tick_params(axis='y', labelcolor='red')
 
-    # Plot BLEU-4 Score (right y-axis)
-    ax2 = ax1.twinx()
-    ax2.set_ylabel('BLEU-4 Score', color='blue')
-    ax2.plot(range(1, num_epochs+1), bleu_scores, marker='D', linestyle='-', color='blue', label='BLEU-4 Score')
-    ax2.tick_params(axis='y', labelcolor='blue')
+        # Plot BLEU-4 Score (right y-axis)
+        ax2 = ax1.twinx()
+        ax2.set_ylabel('BLEU-4 Score', color='blue')
+        ax2.plot(range(1, num_epochs+1), bleu_scores, marker='D', linestyle='-', color='blue', label='BLEU-4 Score')
+        ax2.tick_params(axis='y', labelcolor='blue')
 
-    # Legends and Title
-    ax1.legend(loc='upper left')
-    ax2.legend(loc='upper right')
-    plt.title('Loss and BLEU-4 Score Progression')
-    plt.grid()
-    plt.show()
+        # Legends and Title
+        ax1.legend(loc='upper left')
+        ax2.legend(loc='upper right')
+        plt.title('Loss and BLEU-4 Score Progression')
+        plt.grid()
+        plt.show()
 
 
 
@@ -644,6 +648,8 @@ if "__name__" == "__main__":
             if early_test_stopping and idx >= max_test_batches:
                 print(f"stopped test at {idx} batches")
                 break  # Stop early
+            elif early_test_stopping:
+                print(f"Test batch {idx}, batch size: {len(image)}")
             image, captions = image.to(device), captions.to(device)
             outputs = model(image, captions)
             loss = criterion(outputs.view(-1, vocab_size), captions[:, 1:].contiguous().view(-1))  # Adjust target captions
