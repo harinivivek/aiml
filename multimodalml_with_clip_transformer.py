@@ -16,6 +16,7 @@ import torchvision.transforms as T
 
 import torch.optim as optim
 import os
+import subprocess
 
 # Assuming `dataset` is your image-caption dataset
 from torch.utils.data import random_split, DataLoader
@@ -191,8 +192,8 @@ class EncoderCLIP(nn.Module):
             import clip
         except ModuleNotFoundError:
             # Install the CLIP module
-            !pip -q install git+https://github.com/openai/CLIP.git
-            import clip  # Import CLIP
+            subprocess.check_call(["pip", "install", "git+https://github.com/openai/CLIP.git"])
+            import clip
         self.model, _ = clip.load("ViT-B/32", device=device)  # Load CLIP model
         self.embed = nn.Linear(self.model.visual.output_dim, embed_size)
 
@@ -279,7 +280,7 @@ def load_checkpoint(model, optimizer, filename="checkpoint.pth", drive_enabled=F
         from google.colab import drive
         #fixme: mount only if not already mounted
         drive.mount('/content/drive')
-        !ls -ld "/content/drive/My Drive/"
+        subprocess.check_call(["ls", "-ld", "/content/drive/My Drive/"])
         load_dir = "/content/drive/My Drive/checkpoints/clip-transformer/"
         if not os.path.isdir(load_dir):  # Check if directory exists
             print("No checkpoint dirs found. Starting from epoch 1.")
@@ -337,10 +338,10 @@ def load_data():
         print("dataset folder already exists")
     else:
         os.makedirs("dataset", exist_ok=True)
-        !wget -q https://github.com/jbrownlee/Datasets/releases/download/Flickr8k/Flickr8k_Dataset.zip -P dataset/
-        !unzip -q dataset/Flickr8k_Dataset.zip -d dataset/
-        !wget -q https://github.com/jbrownlee/Datasets/releases/download/Flickr8k/Flickr8k_text.zip -P dataset/
-        !unzip -q dataset/Flickr8k_text.zip -d dataset/
+        subprocess.check_call(["wget", "-q", "https://github.com/jbrownlee/Datasets/releases/download/Flickr8k/Flickr8k_Dataset.zip", "-P", "dataset/"])
+        subprocess.check_call(["unzip", "-q", "dataset/Flickr8k_Dataset.zip", "-d", "dataset/"])
+        subprocess.check_call(["wget", "-q", "https://github.com/jbrownlee/Datasets/releases/download/Flickr8k/Flickr8k_text.zip", "-P", "dataset/"])
+        subprocess.check_call(["unzip", "-q", "dataset/Flickr8k_text.zip", "-d", "dataset/"])
     
     
     image_data_location = os.path.join("dataset/Flicker8k_Dataset")
@@ -434,7 +435,13 @@ def test_model_before_and_after_loading_checkpoint(model, log_prefix):
         caps = model.decoder.generate_caption(features, vocab=dataset.vocab)  # Convert features to caption tokens
         print(f"{log_prefix}: Generated caption: {' '.join(caps)}")  # Convert indices to words
 
-if __name__ == "__main__" or "google.colab" in str(get_ipython()):
+try:
+    from google.colab import drive
+    IN_COLAB = True
+except ImportError:
+    IN_COLAB = False
+
+if __name__ == "__main__" or IN_COLAB:
 
     run_mode = input("Enter the run mode tt(for train_and_test)/t(for test only): ")
     early_stopping_enabled = input("enable early stopping(y/n): ").strip().lower() == "y"
