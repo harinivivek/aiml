@@ -1,7 +1,6 @@
 import numpy as np
 import pandas as pd
 from PIL import Image
-import matplotlib.pyplot as plt
 import matplotlib.image as mpimg
 import os
 import shutil
@@ -11,26 +10,16 @@ from datetime import datetime
 import os
 from collections import Counter
 import spacy
-import torch
 from torch.nn.utils.rnn import pad_sequence
 from torch.utils.data import DataLoader, Dataset
 import torchvision.transforms as T
 
-import torch
 import torch.optim as optim
 import os
 
 # Assuming `dataset` is your image-caption dataset
 from torch.utils.data import random_split, DataLoader
 
-
-
-import os
-import torch
-
-
-
-import torch
 import torch.nn as nn
 import torchvision.models as models
 import torch.optim as optim
@@ -186,8 +175,13 @@ class CapsCollate:
 #     param.requires_grad_(False)
 # modules = list(vgg16.children())[:-1]
 # print(dir(vgg16))
-
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+if torch.cuda.is_available():
+    device_name = "cuda"
+elif torch.backends.mps.is_available():
+    device_name = "mps"
+else:
+    device_name = "cpu"
+device = torch.device(device_name)
 #device
 
 class EncoderCLIP(nn.Module):
@@ -258,12 +252,15 @@ class EncoderDecoder(nn.Module):
         outputs = self.decoder(features, captions)
         return outputs
 
-def save_checkpoint(epoch, model, optimizer, loss, filename="checkpoint.pth", drive_enabled=False):
+def save_checkpoint(epoch, model, optimizer, loss, train_losses, val_losses, bleu_scores, filename="checkpoint.pth", drive_enabled=False):
     checkpoint = {
         "epoch": epoch,
         "model_state": model.state_dict(),
         "optimizer_state": optimizer.state_dict(),
-        "loss": loss
+        "loss": loss,
+        "train_losses": train_losses,
+        "val_losses": val_losses,
+        "bleu_scores": bleu_scores
     }
     
     if drive_enabled:
@@ -297,12 +294,17 @@ def load_checkpoint(model, optimizer, filename="checkpoint.pth", drive_enabled=F
         load_path = os.path.join(load_dir, "checkpoint.pth")
     
     if os.path.isfile(load_path):
-        checkpoint = torch.load(load_path)
+        checkpoint = torch.load(load_path, map_location=device, weights_only=False)
         model.load_state_dict(checkpoint["model_state"])
         optimizer.load_state_dict(checkpoint["optimizer_state"])
+        model.to(device)
+        print("Loaded model state keys:", checkpoint["model_state"].keys())
         start_epoch = checkpoint["epoch"] + 1
-        print(f"Starting from epoch {start_epoch} as checkpoint loaded from epoch {start_epoch - 1}")
-        return start_epoch
+        train_losses = checkpoint.get("train_losses", [])
+        val_losses = checkpoint.get("val_losses", [])
+        bleu_scores = checkpoint.get("bleu_scores", [])
+        print(f"Starting from epoch {start_epoch} as checkpoint file {load_path} loaded with epoch {start_epoch - 1}, with val_losses: {val_losses}")
+        return start_epoch, train_losses, val_losses, bleu_scores
     
     print("Starting from epoch 1 as no saved checkpoint exists")
     return 1  # Start from epoch 1 if no checkpoint exists
@@ -373,12 +375,18 @@ def load_data():
     # Keep only the relevant columns
     cleaned_df = df1[["image", "caption"]]
     # Remove anything after .jpg in the 'image' column
-    cleaned_df['image'] = cleaned_df['image'].str.replace(r'(\.jpg).*$', r'\1', regex=True)
+    #cleaned_df['image'] = cleaned_df['image'].str.replace(r'(\.jpg).*$', r'\1', regex=True)
+    #replaced above line with below to fix warning:
+    #SettingWithCopyWarning: 
+    # A value is trying to be set on a copy of a slice from a DataFrame.
+    # Try using .loc[row_indexer,col_indexer] = value instead
+    # See the caveats in the documentation: https://pandas.pydata.org/pandas-docs/stable/user_guide/indexing.html#returning-a-view-versus-a-copy
+    cleaned_df.loc[:, 'image'] = cleaned_df['image'].str.replace(r'(\.jpg).*$', r'\1', regex=True)
     # Filter out rows where the image column has the specified value
     df = cleaned_df[cleaned_df['image'] != "2258277193_586949ec62.jpg"]
     # Reset index for a clean DataFrame
     df.reset_index(drop=True, inplace=True)
-    df.shape
+    #df.shape
     #df.head()
     # data_idx = 11
     # image_path = image_data_location + "/" + df.iloc[data_idx,0]
@@ -412,11 +420,27 @@ def load_data():
     return dataset
 
 
+def test_model_before_and_after_loading_checkpoint(model, log_prefix):
+    print(f"weights {log_prefix}:")
+    for name, param in model.named_parameters():
+        if 'fc_out.weight' in name:  # Choose a key to inspect
+            print(name, param.data.flatten()[:5])  # Print first 5 values
+            break  # Only checking one layer for now
+    model.eval()
+    with torch.no_grad():
+        test_input = torch.randn(1, 3, 224, 224).to(device)  # Dummy input
+        features = model.encoder(test_input)  # Get encoded features
+        #print("encoder features after method call: 'model.encoder(test_input)':", features)
+        caps = model.decoder.generate_caption(features, vocab=dataset.vocab)  # Convert features to caption tokens
+        print(f"{log_prefix}: Generated caption: {' '.join(caps)}")  # Convert indices to words
+
 if __name__ == "__main__" or "google.colab" in str(get_ipython()):
 
     run_mode = input("Enter the run mode tt(for train_and_test)/t(for test only): ")
-    early_stopping_enabled = input("enable early stopping: y/n").strip().lower() == "y"
-    drive_enabled = input("enable google drive: y/n").strip().lower() == "y"
+    early_stopping_enabled = input("enable early stopping(y/n): ").strip().lower() == "y"
+    checkpoint_enabled = input("enable check points save/load(y/n): ").strip().lower() == "y"
+    drive_enabled = input("enable google drive(y/n): ").strip().lower() == "y"
+    num_epochs = int(input("no. of epochs: "))
     print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] started execution")
 
     dataset = load_data()
@@ -503,7 +527,7 @@ if __name__ == "__main__" or "google.colab" in str(get_ipython()):
     num_heads = 8
     dropout = 0.3
     learning_rate = 0.0001
-    num_epochs = 2
+    #num_epochs = 2
 
     # initialize model, loss etc
     model = EncoderDecoder(embed_size, hidden_size, vocab_size, num_layers, num_heads, dropout).to(device)
@@ -519,12 +543,15 @@ if __name__ == "__main__" or "google.colab" in str(get_ipython()):
     train_losses = []
     val_losses = []
     bleu_scores = []
+    start_epoch=1
 
+    test_model_before_and_after_loading_checkpoint(model, "before loading checkpoint")
     # Load checkpoint if available
-    start_epoch = load_checkpoint(model, optimizer, drive_enabled=drive_enabled)
-    #start_epoch=1
+    if checkpoint_enabled:
+        start_epoch, train_losses, val_losses, bleu_scores = load_checkpoint(model, optimizer, drive_enabled=drive_enabled)
+    test_model_before_and_after_loading_checkpoint(model, "after loading checkpoint")
 
-    num_epochs = 2
+    #num_epochs = 2
     print_every = 500
     early_stopping = early_val_stopping = early_test_stopping = early_stopping_enabled
     max_batches = 2  # Limit the number of batches
@@ -585,6 +612,8 @@ if __name__ == "__main__" or "google.colab" in str(get_ipython()):
                         candidate = caption
                         bleu_score = calculate_bleu(reference, candidate)
                         total_bleu += bleu_score
+                    if early_test_stopping:
+                        show_image(img[0], title=caption)
                 show_image(img[0], title=caption)
 
             num_val_samples = len(val_loader.dataset)
@@ -610,32 +639,36 @@ if __name__ == "__main__" or "google.colab" in str(get_ipython()):
         print(f"Length of val_losses: {len(val_losses)}")
         print(f"Expected num_epochs: {num_epochs}")
         #Save checkpoint after each epoch
-        save_checkpoint(epoch, model, optimizer, running_loss, drive_enabled=True)
+        #if checkpoint_enabled:
+        save_checkpoint(epoch, model, optimizer, running_loss, train_losses, val_losses, bleu_scores, drive_enabled=True)
         print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Checkpoint saved after epoch {epoch}")
 
 
-        # **Plot BLEU-4 Score and Loss over Epochs**
-        fig, ax1 = plt.subplots(figsize=(8, 5))
+        try:
+            # **Plot BLEU-4 Score and Loss over Epochs**
+            fig, ax1 = plt.subplots(figsize=(8, 5))
 
-        # Plot Loss (left y-axis)
-        ax1.set_xlabel('Epochs')
-        ax1.set_ylabel('Loss', color='red')
-        ax1.plot(range(1, num_epochs+1), train_losses, marker='o', linestyle='-', color='red', label='Train Loss')
-        ax1.plot(range(1, num_epochs+1), val_losses, marker='s', linestyle='--', color='orange', label='Val Loss')
-        ax1.tick_params(axis='y', labelcolor='red')
+            # Plot Loss (left y-axis)
+            ax1.set_xlabel('Epochs')
+            ax1.set_ylabel('Loss', color='red')
+            ax1.plot(range(1, num_epochs+1), train_losses, marker='o', linestyle='-', color='red', label='Train Loss')
+            ax1.plot(range(1, num_epochs+1), val_losses, marker='s', linestyle='--', color='orange', label='Val Loss')
+            ax1.tick_params(axis='y', labelcolor='red')
 
-        # Plot BLEU-4 Score (right y-axis)
-        ax2 = ax1.twinx()
-        ax2.set_ylabel('BLEU-4 Score', color='blue')
-        ax2.plot(range(1, num_epochs+1), bleu_scores, marker='D', linestyle='-', color='blue', label='BLEU-4 Score')
-        ax2.tick_params(axis='y', labelcolor='blue')
+            # Plot BLEU-4 Score (right y-axis)
+            ax2 = ax1.twinx()
+            ax2.set_ylabel('BLEU-4 Score', color='blue')
+            ax2.plot(range(1, num_epochs+1), bleu_scores, marker='D', linestyle='-', color='blue', label='BLEU-4 Score')
+            ax2.tick_params(axis='y', labelcolor='blue')
 
-        # Legends and Title
-        ax1.legend(loc='upper left')
-        ax2.legend(loc='upper right')
-        plt.title('Loss and BLEU-4 Score Progression')
-        plt.grid()
-        plt.show()
+            # Legends and Title
+            ax1.legend(loc='upper left')
+            ax2.legend(loc='upper right')
+            plt.title('Loss and BLEU-4 Score Progression')
+            plt.grid()
+            plt.show()
+        except Exception as e:
+            print(f"plot failed with exception: {e}")
 
 
 
@@ -660,11 +693,13 @@ if __name__ == "__main__" or "google.colab" in str(get_ipython()):
                 features = model.encoder(img)
                 caps = model.decoder.generate_caption(features, vocab=dataset.vocab)  # Adjust features dimensions
                 caption = ' '.join(caps)
-                #print(f"Generated Caption: {caption}")
+                print(f"Generated Caption: {caption}")
                 reference = [dataset.vocab.itos[idx] for idx in captions[i].cpu().numpy() if idx != 0]  # Ignore padding
                 candidate = caption
                 bleu_score = calculate_bleu(reference, candidate)
                 total_test_bleu += bleu_score
+            if early_test_stopping:
+                show_image(img[0], title=caption)
         show_image(img[0], title=caption)
     num_test_samples = len(test_loader.dataset)
     avg_test_bleu = total_test_bleu / float(num_test_samples) if num_test_samples > 0 else 0  # Ensure float division to avoid int division resulting in zero always  
