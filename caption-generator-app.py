@@ -6,7 +6,7 @@ from torchvision import transforms
 from transformers import BlipProcessor, BlipForConditionalGeneration  # Assuming you have a defined model class
 from multimodalml_with_clip_transformer import EncoderDecoder as clipTransformer, load_data
 from multimodal_resnet_lstm import EncoderDecoder as resnetLstm, dataset as resnetDataset
-
+from multimodalml_with_clip_lstm import EncoderDecoder as clipLstm, dataset as clipDataset
 
 
 if torch.cuda.is_available():
@@ -49,6 +49,22 @@ def resnet_lstm_load_model(dataset):
     model.to(device).to(torch.float32)
     return model
 
+def clip_lstm_load_model(dataset):
+    # Hyperparameters
+    embed_size = 400
+    hidden_size = 512
+    vocab_size = len(dataset.vocab)
+    num_layers = 2
+    learning_rate = 0.0001
+    model = clipLstm(embed_size, hidden_size, vocab_size, num_layers)
+    checkpoint_path = "checkpoints/clip-lstm/20250216_193220_epoch_1.pth"
+    checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
+    model.load_state_dict(checkpoint["model_state_dict"])
+    #model.load_state_dict(torch.load("/content/drive/My Drive/checkpoints/clip-transformer/20250216_115633_checkpoint.pth", map_location=device))
+    #model.to(device)
+    model.to(device).to(torch.float32)
+    return model
+
 def generate_caption_for_image(model, image, vocab, transform, is_resnet):
     # Load and preprocess image
     #image = Image.open(uploaded_file).convert("RGB")
@@ -61,7 +77,7 @@ def generate_caption_for_image(model, image, vocab, transform, is_resnet):
         #features = model.encoder(image_tensor)
         features = model.encoder(image_tensor).to(torch.float32)
         print(f"Feature shape: {features.shape}")  # Debugging shape
-        if is_resnet:
+        if is_resnet or is_clip_lstm:
             # Initialize the LSTM hidden state (num_layers, batch_size, hidden_size)
             batch_size = features.size(0)  # Should be 1 for a single image
             hidden_size = model.decoder.lstm.hidden_size
@@ -84,9 +100,10 @@ def generate_caption_for_image(model, image, vocab, transform, is_resnet):
 st.title("Image Caption Generator")
 checkpoint_dir = os.path.dirname(os.path.abspath(__file__)) + "/checkpoints"
 is_resnet = False
+is_clip_lstm = False
 
 # Model selection dropdown
-model_option = st.selectbox("Select a Model", ["Pretrained - BLIP Model", "CLIP + Transformer Model", "RESNET50 + LSTM Model"])
+model_option = st.selectbox("Select a Model", ["Pretrained - BLIP Model", "CLIP + Transformer Model", "RESNET50 + LSTM Model", "CLIP + LSTM Model"])
 
 if model_option == "Pretrained - BLIP Model":
     processor = BlipProcessor.from_pretrained("Salesforce/blip-image-captioning-base")
@@ -109,6 +126,14 @@ elif model_option == "RESNET50 + LSTM Model":
     ])
     is_resnet = True
     
+elif model_option == "CLIP + LSTM Model":
+    dataset = clipDataset
+    model = clip_lstm_load_model(dataset)
+    transform = transforms.Compose([
+        transforms.Resize((224,224)),
+        transforms.ToTensor()
+    ])
+    is_clip_lstm = True
 
 uploaded_file = st.file_uploader("Upload an image", type=["jpg", "png", "jpeg"])
 if uploaded_file and model:
